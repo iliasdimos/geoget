@@ -1,0 +1,76 @@
+version: 2
+jobs:
+  test:
+    docker:
+      - image: circleci/golang:1.12
+    working_directory: /go/src/github.com/dosko64/geoget
+    steps:
+      - checkout
+      - run: GO111MODULE=on go get -v -t -d ./...
+      - run: GO111MODULE=on go test -v ./...
+
+  dev-release:
+    docker:
+      - image: docker:18.03.0-ce-git
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run: apk add --no-cache make curl
+      - run: docker login -u $DOCKER_USER -p $DOCKER_PASS
+      - run: make release
+
+  release:
+    docker:
+      - image: docker:18.03.0-ce-git
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run: apk add --no-cache make curl
+      - run: docker login -u $DOCKER_USER -p $DOCKER_PASS
+      - run: make release
+      - run:
+          name: Push to docker hub
+          command: |
+            TODAY=$(date -I)
+            docker tag dosko64/geoget:latest dosko64/geoget:$TODAY
+            docker push dosko64/geoget:$TODAY
+            docker push dosko64/geoget:latest
+
+workflows:
+  version: 2
+  build_and_release:
+    jobs:
+      - test
+      - dev-release:
+          requires:
+            - test
+          context: Default
+          filters:
+            branches:
+              ignore: master
+      - release:
+          requires:
+            - test
+          context: Default
+          filters:
+            branches:
+              only: master
+  nightly:
+    jobs:
+      - test
+      - release:
+          requires:
+            - test
+          context: Default
+          filters:
+            branches:
+              only: master      
+    triggers:
+      - schedule:
+          cron: "5 0 * * *"
+          filters:
+            branches:
+              only:
+                - master

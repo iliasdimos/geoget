@@ -35,10 +35,4 @@ run:
 docker:
 	docker build -t $(DOCKER_REPO):$(DOCKER_TAG) .
 
-push: 
-	TODAY=$(date --iso-8601)
-	docker tag $(DOCKER_REPO):$(DOCKER_TAG) $(DOCKER_REPO):$(TODAY)
-	docker push $(DOCKER_REPO):$(DOCKER_TAG)
-	docker push $(DOCKER_REPO):$(TODAY)
-
-release: clean db docker push
+release: clean db docker
