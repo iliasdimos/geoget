@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"runtime/debug"
 	"time"
@@ -8,6 +9,26 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/sirupsen/logrus"
 )
+
+func NewLogger(out io.Writer, level string, dev bool) *logrus.Logger {
+	// create new logger
+	log := logrus.New()
+	log.Out = out
+	// Configure logger
+	setLevel, err := logrus.ParseLevel(level)
+	if err != nil {
+		setLevel = logrus.InfoLevel
+		log.Error(err.Error())
+	}
+	log.SetLevel(setLevel)
+
+	// Adjust logging format
+	log.SetFormatter(&logrus.JSONFormatter{})
+	if dev {
+		log.SetFormatter(&logrus.TextFormatter{})
+	}
+	return log
+}
 
 // LoggerMiddleware is a http middleware for logging requests
 func loggerMiddleware(log *logrus.Logger) func(next http.Handler) http.Handler {

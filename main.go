@@ -2,46 +2,45 @@ package main
 
 import (
 	"context"
+	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/go-chi/chi/middleware"
-	"github.com/go-chi/render"
+	"github.com/gomiddleware/recover"
 	"github.com/oschwald/geoip2-golang"
-	"github.com/sirupsen/logrus"
 )
 
-func main() {
-	// create new logger
-	log := logrus.New()
+type GeoDatabase struct {
+	db Database
+}
 
+func NewGeoDatabase(path string) (*GeoDatabase, error) {
+	db, err := geoip2.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return &GeoDatabase{db}, nil
+}
+
+func (g GeoDatabase) City(ip net.IP) (*geoip2.City, error) {
+	return g.db.City(ip)
+}
+
+func main() {
 	// Create a config from env variables with a prefix
 	cfg, err := newCfg("")
 	if err != nil {
 		log.Fatalf("main: Error loading config: %s", err.Error())
 	}
 
-	// Configure logger
-	level, err := logrus.ParseLevel(cfg.Log.Level)
-	if err != nil {
-		level = logrus.InfoLevel
-		log.Error(err.Error())
-	}
-	if cfg.Log.Debug {
-		level = logrus.DebugLevel
-	}
-	log.SetLevel(level)
+	// Create a logger
+	log := NewLogger(os.Stdout, cfg.Log.Level, cfg.Log.Dev)
 
-	// Adjust logging format
-	log.SetFormatter(&logrus.JSONFormatter{})
-	if cfg.Log.Dev {
-		log.SetFormatter(&logrus.TextFormatter{})
-	}
-
-	// Open database file
-	db, err := geoip2.Open(cfg.Database.Path)
+	// Open the database
+	db, err := NewGeoDatabase(cfg.Database.Path)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -49,17 +48,14 @@ func main() {
 	// create middlewares for our api server
 	// by createing a list of middlewares to enable on http server
 	mw := []func(http.Handler) http.Handler{
-		render.SetContentType(render.ContentTypeJSON),
 		loggerMiddleware(log),
-		middleware.DefaultCompress,
-		middleware.RedirectSlashes,
-		middleware.Recoverer,
+		recover.Handler,
 	}
 
 	// create the http.Server
 	api := http.Server{
 		Addr:           cfg.Web.Host + ":" + cfg.Web.Port,
-		Handler:        newServer(log, db, mw...),
+		Handler:        Chain(NewGeoServer(log, *db), mw...),
 		ReadTimeout:    cfg.Web.ReadTimeout,
 		WriteTimeout:   cfg.Web.WriteTimeout,
 		MaxHeaderBytes: 1 << 20,

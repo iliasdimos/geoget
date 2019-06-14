@@ -1,71 +1,77 @@
 package main
 
 import (
-	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 
-	"github.com/go-chi/chi"
 	"github.com/oschwald/geoip2-golang"
 	"github.com/sirupsen/logrus"
 )
 
-func newServer(log *logrus.Logger, db *geoip2.Reader, mw ...func(http.Handler) http.Handler) *chi.Mux {
-	mux := chi.NewRouter()
-	mux.Use(mw...)
-	mux.Route("/", func(r chi.Router) {
-		r.Get("/{ip}", byIP(db))
-	})
-
-	return mux
+type Handler interface {
+	ServeHTTP(http.ResponseWriter, *http.Request)
 }
 
-type value struct {
-	Status  int         `json:"status"`
-	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data,omitempty"`
+type GeoServer struct {
+	db  Database
+	log *logrus.Logger
 }
 
-func errorR(w http.ResponseWriter, code int, message string) {
-	sendResponse(w, code, value{Status: code, Message: message}) //, nil)
+func NewGeoServer(log *logrus.Logger, db Database) *GeoServer {
+	return &GeoServer{db: db}
 }
 
-func jsonR(w http.ResponseWriter, code int, payload interface{}) {
-	sendResponse(w, code, value{Status: code, Data: payload})
+// Chain applies middlewares to a http.HandlerFunc
+func Chain(f http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
+	for _, m := range middlewares {
+		f = m(f)
+	}
+	return f
 }
 
-func sendResponse(w http.ResponseWriter, code int, payload interface{}) {
-	resp, err := json.Marshal(payload)
+func (g *GeoServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	in := r.URL.Path[len("/"):]
+	ip, err := ipHelper(in)
+
 	if err != nil {
-		logrus.Println(err.Error())
-		errorR(w, http.StatusInternalServerError, err.Error())
+		w.WriteHeader(http.StatusNotFound)
+		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	w.Write(resp)
+	g.respondIP(w, ip)
 }
-func byIP(db *geoip2.Reader) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
 
-		ipFromReq := chi.URLParam(r, "ip")
-		if ipFromReq == "" {
-			errorR(w, 404, "Invalid Request")
-			return
-		}
+var ErrInvalidIP = fmt.Errorf("Invalid ip address")
+var ErrNotFound = fmt.Errorf("Not Found")
 
-		ip := net.ParseIP(ipFromReq)
-		if ip == nil {
-			errorR(w, 404, "Invalid IP Address")
-			return
-		}
-
-		record, err := db.City(ip)
-		if err != nil {
-			errorR(w, 404, "Not Found")
-			return
-		}
-
-		jsonR(w, http.StatusOK, record)
+func ipHelper(in string) (net.IP, error) {
+	if in == "" {
+		return nil, ErrInvalidIP
 	}
+
+	ip := net.ParseIP(in)
+	if ip == nil {
+		return nil, ErrInvalidIP
+	}
+	return ip, nil
+}
+
+func (g *GeoServer) respondIP(w http.ResponseWriter, ip net.IP) {
+	data, err := g.db.City(ip)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	fmt.Fprint(w, data)
+}
+
+type Database interface {
+	City(net.IP) (*geoip2.City, error)
 }
