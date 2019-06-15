@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -68,8 +69,8 @@ func (g *GeoServer) respondIP(w http.ResponseWriter, ip net.IP) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-
-	fmt.Fprint(w, data)
+	json.NewEncoder(w).Encode(&data)
+	w.WriteHeader(http.StatusOK)
 }
 
 type Database interface {

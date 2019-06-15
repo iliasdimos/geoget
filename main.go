@@ -48,6 +48,7 @@ func main() {
 	// create middlewares for our api server
 	// by createing a list of middlewares to enable on http server
 	mw := []func(http.Handler) http.Handler{
+		contentType("application/json"),
 		loggerMiddleware(log),
 		recover.Handler,
 	}

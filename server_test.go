@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -30,7 +31,7 @@ func TestGetCity(t *testing.T) {
 			IsoCode           string            "maxminddb:\"iso_code\""
 			Names             map[string]string "maxminddb:\"names\""
 		}{
-			IsInEuropeanUnion: false,
+			IsInEuropeanUnion: true,
 		},
 	}
 
@@ -47,9 +48,18 @@ func TestGetCity(t *testing.T) {
 
 		server.ServeHTTP(response, request)
 		assertStatus(t, response.Code, http.StatusOK)
-		if response.Body.String() == "" {
-			t.Errorf("response body is wrong, got '%s' want '%s'", response.Body.String(), "")
+		var got *geoip2.City
+
+		err := json.NewDecoder(response.Body).Decode(&got)
+
+		if err != nil {
+			t.Errorf("Unable to parse city response from server '%s' into City struct, '%v'", response.Body.String(), err)
 		}
+
+		if got.Country.IsInEuropeanUnion != db.store["8.8.8.8"].Country.IsInEuropeanUnion {
+			t.Errorf("Unable to get correct item from store, got %v expected %v", got.Country.IsInEuropeanUnion, db.store["8.8.8.8"].Country.IsInEuropeanUnion)
+		}
+
 	})
 	t.Run("Get an address that does not exists ", func(t *testing.T) {
 		request := newGetRequest("1.1.1.1")

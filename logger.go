@@ -77,3 +77,12 @@ func loggerMiddleware(log *logrus.Logger) func(next http.Handler) http.Handler {
 		return http.HandlerFunc(fn)
 	}
 }
+func contentType(contentType string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		fn := func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("content-type", contentType)
+			next.ServeHTTP(w, r)
+		}
+		return http.HandlerFunc(fn)
+	}
+}
