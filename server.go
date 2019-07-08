@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,9 +11,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type Handler interface {
-	ServeHTTP(http.ResponseWriter, *http.Request)
-}
+var (
+	ErrInvalidIP = errors.New("Invalid ip address")
+	ErrNotFound  = errors.New("Not Found")
+)
 
 type GeoServer struct {
 	db  Database
@@ -20,7 +22,7 @@ type GeoServer struct {
 }
 
 func NewGeoServer(log *logrus.Logger, db Database) *GeoServer {
-	return &GeoServer{db: db}
+	return &GeoServer{db: db, log: log}
 }
 
 // Chain applies middlewares to a http.HandlerFunc
@@ -33,7 +35,7 @@ func Chain(f http.Handler, middlewares ...func(http.Handler) http.Handler) http.
 
 func (g *GeoServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		Error(w, http.StatusMethodNotAllowed, fmt.Errorf("Method %s not allowed", r.Method))
 		return
 	}
 
@@ -41,15 +43,18 @@ func (g *GeoServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ip, err := ipHelper(in)
 
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
+		Error(w, http.StatusNotFound, err)
+		return
+	}
+	data, err := g.getData(ip)
+
+	if err != nil {
+		Error(w, http.StatusNotFound, err)
 		return
 	}
 
-	g.respondIP(w, ip)
+	Json(w, data)
 }
-
-var ErrInvalidIP = fmt.Errorf("Invalid ip address")
-var ErrNotFound = fmt.Errorf("Not Found")
 
 func ipHelper(in string) (net.IP, error) {
 	if in == "" {
@@ -62,15 +67,28 @@ func ipHelper(in string) (net.IP, error) {
 	}
 	return ip, nil
 }
-
-func (g *GeoServer) respondIP(w http.ResponseWriter, ip net.IP) {
+func (g *GeoServer) getData(ip net.IP) (*geoip2.City, error) {
 	data, err := g.db.City(ip)
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		return
+		return nil, ErrNotFound
 	}
-	json.NewEncoder(w).Encode(&data)
+	return data, nil
+}
+
+func Json(w http.ResponseWriter, data *geoip2.City) {
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(&data)
+}
+
+type ErrorStruct struct {
+	Data string `json:"data"`
+}
+
+func Error(w http.ResponseWriter, code int, err error) {
+	resp := new(ErrorStruct)
+	resp.Data = err.Error()
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(&resp)
 }
 
 type Database interface {

@@ -68,7 +68,12 @@ func TestGetCity(t *testing.T) {
 		server.ServeHTTP(response, request)
 		assertStatus(t, response.Code, http.StatusNotFound)
 		if response.Body.String() != "" {
-			t.Errorf("response body is wrong, got '%s' want '%s'", response.Body.String(), "")
+			d := new(ErrorStruct)
+			err := json.NewDecoder(response.Body).Decode(&d)
+			if err != nil {
+				t.Errorf("response body could not be decoded to ErrorStruct, got: %s", err.Error())
+			}
+			assertBodyHas(t, d.Data, "Not Found")
 		}
 	})
 	t.Run("Sent empty ip", func(t *testing.T) {
@@ -106,5 +111,12 @@ func assertStatus(t *testing.T, got, want int) {
 	t.Helper()
 	if got != want {
 		t.Errorf("did not get correct status, got %d, want %d", got, want)
+	}
+}
+
+func assertBodyHas(t *testing.T, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Errorf("did not get correct message, got %s, want %s", got, want)
 	}
 }
